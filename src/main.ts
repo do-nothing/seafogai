@@ -21,7 +21,8 @@ async function bootstrap() {
     .setDescription('Seafogai 工具集')
     .setVersion('1.0')
     .addBearerAuth()
-    .addServer('http://localhost:3000') // 添加服务器信息
+    .addServer('http://localhost:3000') // 本地开发服务器
+    .addServer('https://tool.tmmk.cc') // 生产环境服务器
     .build();
   
   const document = SwaggerModule.createDocument(app, config);
