@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
+import { TokenType } from './wallet.types';
 
 @Injectable()
 export class WalletService {
@@ -29,7 +30,7 @@ export class WalletService {
         };
     }
 
-    async transferFunds(userId: string, toAddress: string, token: string, amount: string, memo: string) {
+    async transferFunds(userId: string, toAddress: string, token: TokenType, amount: string, memo: string) {
         // 检查用户的余额
         const { data: wallet, error: walletError } = await this.supabaseService
             .getClient()
@@ -139,8 +140,8 @@ export class WalletService {
         };
     }
 
-    async getTransactions(userId: string, page: number = 1, limit: number = 20, token?: string) {
-        // 获取用户的钱包
+    async getTransactions(userId: string, page: number = 1, limit: number = 20, token?: TokenType) {
+        // 获取用户钱包
         const { data: wallet, error: walletError } = await this.supabaseService
             .getClient()
             .from('wallets')
@@ -152,12 +153,20 @@ export class WalletService {
             throw new Error('Wallet not found');
         }
 
-        // 查询交易记录
-        const { data: transactions, error: transactionError } = await this.supabaseService
+        // 构建查询
+        let query = this.supabaseService
             .getClient()
             .from('transactions')
             .select('*')
             .or(`sender_id.eq.${wallet.id},recipient_address.eq.${wallet.address}`)
+
+        // 如果指定了token，添加token过滤条件
+        if (token) {
+            query = query.eq('token', token);
+        }
+
+        // 添加分页
+        const { data: transactions, error: transactionError } = await query
             .range((page - 1) * limit, page * limit - 1)
             .order('created_at', { ascending: false });
 
@@ -165,12 +174,13 @@ export class WalletService {
             throw new Error('Error fetching transactions');
         }
 
-        // 获取总交易记录数
+        // 获取总记录数
         const { count } = await this.supabaseService
             .getClient()
             .from('transactions')
             .select('id', { count: 'exact', head: true })
-            .or(`sender_id.eq.${wallet.id},recipient_address.eq.${wallet.address}`);
+            .or(`sender_id.eq.${wallet.id},recipient_address.eq.${wallet.address}`)
+            .eq('token', token);
 
         return {
             total: count,
@@ -180,15 +190,15 @@ export class WalletService {
 
     async createPaymentOrder(membershipType: string, durationMonths: number) {
         let amount: string;
-        let currency: string;
+        let currency: TokenType;
 
         // 根据会员类型和持续时间计算价格
         if (membershipType === 'basic') {
             amount = (20 * durationMonths).toString(); // 每月 20 USDT
-            currency = 'USDT';
+            currency = TokenType.USDT;
         } else if (membershipType === 'premium') {
             amount = (0.01 * durationMonths).toString(); // 每月 0.01 ETH
-            currency = 'ETH';
+            currency = TokenType.ETH;
         } else {
             throw new Error('Invalid membership type');
         }
@@ -199,11 +209,21 @@ export class WalletService {
         };
     }
 
-    async payOrder(userId: string, currency: string, amount: string) {
+    async payOrder(userId: string, currency: TokenType, amount: string) {
         const recipientAddress = '0x1234567890abcdef1234567890abcdef12345678'; // 模拟收款地址
 
         // 模拟转账逻辑
         const result = await this.transferFunds(userId, recipientAddress, currency, amount, 'Payment for Discord membership');
         return result;
+    }
+
+    async verifyAccessToken(accessToken: string): Promise<string> {
+        const { data: { user }, error } = await this.supabaseService.getClient().auth.getUser(accessToken);
+
+        if (error || !user) {
+            throw new UnauthorizedException('Invalid access token');
+        }
+
+        return user.id;
     }
 } 

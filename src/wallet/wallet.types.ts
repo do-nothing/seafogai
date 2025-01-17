@@ -2,7 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class Balance {
   @ApiProperty({
-    description: '代币符号，例如 "ETH", "USDT"',
+    description: '代币符号，包括 "ETH", "USDT"',
     example: 'ETH'
   })
   token: string;
@@ -54,7 +54,13 @@ export class WalletInfoResponse {
   data: WalletInfoData;
 }
 
-// 新增转账请求体定义
+// 添加货币类型枚举
+export enum TokenType {
+  ETH = 'ETH',
+  USDT = 'USDT'
+}
+
+// 修改 TransferFundsDto
 export class TransferFundsDto {
   @ApiProperty({
     description: '接收方钱包地址，必须是有效的以太坊地址',
@@ -63,10 +69,11 @@ export class TransferFundsDto {
   to_address: string;
 
   @ApiProperty({
-    description: '代币类型，例如 "ETH", "USDT"，用于指定转账的代币',
-    example: 'ETH',
+    description: '代币类型',
+    enum: TokenType,
+    example: TokenType.ETH
   })
-  token: string;
+  token: TokenType;
 
   @ApiProperty({
     description: '转账金额，使用字符串表示以避免浮点数精度问题',
@@ -79,16 +86,23 @@ export class TransferFundsDto {
     example: '支付订单 #123',
     required: false,
   })
-  memo?: string; // 可选字段
+  memo?: string;
 }
 
-// 新增创建支付订单请求体定义
+// 添加枚举定义
+export enum MembershipType {
+  BASIC = 'basic',
+  PREMIUM = 'premium'
+}
+
+// 修改 CreatePaymentOrderDto
 export class CreatePaymentOrderDto {
   @ApiProperty({
-    description: '会员类型，例如 "basic", "premium"',
-    example: 'basic'
+    description: '会员类型',
+    enum: MembershipType,
+    example: MembershipType.BASIC
   })
-  membership_type: string;
+  membership_type: MembershipType;
 
   @ApiProperty({
     description: '购买的月份数',
@@ -97,13 +111,14 @@ export class CreatePaymentOrderDto {
   duration_months: number;
 }
 
-// 新增支付订单请求体定义
+// 修改 PayOrderDto
 export class PayOrderDto {
   @ApiProperty({
-    description: '货币类型，例如 "ETH", "USDT"',
-    example: 'USDT'
+    description: '货币类型',
+    enum: TokenType,
+    example: TokenType.USDT
   })
-  currency: string;
+  currency: TokenType;
 
   @ApiProperty({
     description: '支付金额',

@@ -1,3 +1,6 @@
+-- 启用 UUID 扩展
+create extension if not exists "uuid-ossp";
+
 -- 创建钱包表
 create table if not exists public.wallets (
   id uuid primary key default uuid_generate_v4(),
@@ -7,9 +10,6 @@ create table if not exists public.wallets (
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null,
   unique(user_id)
 );
-
--- 设置 RLS 策略
-alter table public.wallets enable row level security;
 
 -- 创建余额表
 create table if not exists public.balances (
@@ -24,39 +24,66 @@ create table if not exists public.balances (
 );
 
 alter table public.balances enable row level security;
+create policy "Users can only view their own balances"
+    on public.balances for select
+    to authenticated
+    using (wallet_id in (
+        select id from public.wallets where user_id = auth.uid()
+    ));
 
--- 创建触发器函数
-create or replace function create_wallet_and_balance()
+-- 为触发器函数设置权限
+grant execute on function public.create_wallet_and_balance to postgres;
+
+-- 修改触发器函数，明确指定 schema
+create or replace function public.create_wallet_and_balance()
 returns trigger as $$
 declare
     wallet_id uuid;
 begin
-    -- 创建钱包，使用 UUID 作为地址
-    insert into public.wallets (user_id, address)
-    values (new.id, uuid_generate_v4()::text)
-    returning id into wallet_id;
+    -- 设置搜索路径，包含 auth schema
+    set search_path = public, auth;
+    
+    -- 记录开始执行
+    raise log 'Starting create_wallet_and_balance for user %', new.id;
+    raise log 'Function executing as user: %', current_user;
+    
+    begin
+        -- 创建钱包
+        raise log 'Creating wallet for user %', new.id;
+        insert into public.wallets (user_id, address)
+        values (new.id, gen_random_uuid()::text)
+        returning id into wallet_id;
+        
+        raise log 'Wallet created with ID: %', wallet_id;
 
-    -- 初始化余额
-    insert into public.balances (wallet_id, token, balance, usd_value)
-    values 
-        (wallet_id, 'ETH', '100', '300000'),
-        (wallet_id, 'USDT', '100', '100');
+        -- 初始化余额
+        raise log 'Initializing balances for wallet %', wallet_id;
+        insert into public.balances (wallet_id, token, balance, usd_value)
+        values 
+            (wallet_id, 'ETH', '100', '300000'),
+            (wallet_id, 'USDT', '100', '100');
+        
+        raise log 'Balances initialized successfully';
 
+    exception when others then
+        -- 记录详细错误信息
+        raise log 'Error in create_wallet_and_balance for user %: % %', new.id, SQLERRM, SQLSTATE;
+        return new;
+    end;
+
+    raise log 'Successfully completed create_wallet_and_balance for user %', new.id;
     return new;
 end;
-$$ language plpgsql;
+$$ language plpgsql security definer set search_path = public, auth;
 
--- 创建触发器
-do $$
-begin
-  if not exists (select 1 from pg_trigger where tgname = 'on_user_insert') then
-    create trigger on_user_insert
-    after insert on auth.users
-    for each row
-    execute procedure create_wallet_and_balance();
-  end if;
-end;
-$$;
+-- 删除旧触发器（如果存在）
+drop trigger if exists on_user_insert on auth.users;
+
+-- 创建新触发器
+create trigger on_user_insert
+after insert on auth.users
+for each row
+execute procedure public.create_wallet_and_balance();
 
 -- 为已存在用户插入钱包和余额数据
 do $$
@@ -94,3 +121,9 @@ create table if not exists public.transactions (
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 alter table public.transactions enable row level security;
+create policy "Users can view their own transactions"
+    on public.transactions for select
+    to authenticated
+    using (sender_id in (
+        select id from public.wallets where user_id = auth.uid()
+    ));
